@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: cse-upcat-loadbalancer
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: ORIGIN_URLS
+        sync: false
+      - key: MAINTENANCE_KEYWORDS
+        value: This service has been suspended,under maintenance
+      - key: TIMEOUT_MS
+        value: 3000
+      - key: REDIRECT_STATUS
+        value: 302

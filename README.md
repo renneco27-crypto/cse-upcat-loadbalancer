@@ -1,45 +1,48 @@
-# ⚡ CSE UPCAT Redirect Load Balancer
+# ⚡ CSE UPCAT Redirect Load Balancer (Render)
 
-A high-performance, zero-bandwidth edge load balancer that monitors multiple mirror servers and issues instant HTTP 302/307 redirects to the highest-priority healthy URL.
-
----
-
-## 💡 Why This Eliminates Bandwidth Bottlenecks
-
-Traditional reverse proxies funnel all data, PDFs, images, and video through a middleman. If that middleman runs out of bandwidth, the whole site crashes.
-
-**How this Redirect Load Balancer works:**
-1. User visits the balancer URL.
-2. The balancer quickly checks your target server URLs.
-3. The balancer sends an instant **HTTP 302 Redirect** directly to the active, healthy server.
-4. **Bandwidth consumption: 0 MB**. The balancer only sends a 150-byte redirect header; all heavy traffic goes directly to the live server.
-5. If the live server goes into maintenance, subsequent users are immediately redirected to the next backup server!
+A zero-bandwidth redirect router designed specifically to host on **Render**.
 
 ---
 
-## ⚙️ Configuration (`wrangler.toml` or `.env`)
+## 💡 Why This Uses Virtually Zero Bandwidth & CPU on Render
 
-Simply input your target URLs separated by commas in priority order:
+Instead of proxying megabytes of HTML, images, and exam questions through Render:
+1. When a student visits your Render load balancer (e.g. `https://cse-upcat.devs.surf`), Render returns an instant **HTTP 302 Redirect** (~150 bytes).
+2. The student's browser immediately navigates directly to your active mirror.
+3. All heavy exam traffic is served by the target mirror—**not by Render**. Render never gets overloaded or runs out of bandwidth!
+4. If a target is suspended (`This service has been suspended.`), Render immediately sends users to the next mirror!
 
-```env
-ORIGIN_URLS="https://primary-server.com, https://backup-server.com"
-TIMEOUT_MS=2500
-REDIRECT_STATUS=302
+---
+
+## 🚀 How to Deploy on Render (Step-by-Step)
+
+### Step 1: Push this folder to a new GitHub repo
+```powershell
+cd cse-upcat-loadbalancer
+git remote add origin https://github.com/renneco27-crypto/cse-upcat-loadbalancer.git
+git branch -M main
+git push -u origin main
 ```
 
----
+### Step 2: Create Web Service on Render
+1. Go to [dashboard.render.com](https://dashboard.render.com/) $\rightarrow$ Click **New +** $\rightarrow$ **Web Service**.
+2. Connect your `cse-upcat-loadbalancer` GitHub repo.
+3. Set the following fields:
+   * **Runtime**: `Node`
+   * **Build Command**: `npm install`
+   * **Start Command**: `npm start`
+   * **Instance Type**: `Free`
 
-## 🚀 Deployment Options
+### Step 3: Add Environment Variables in Render
+Under **Environment Variables**, add:
+* `ORIGIN_URLS`: `https://server1.onrender.com, https://backup-server.vercel.app`
+* `MAINTENANCE_KEYWORDS`: `This service has been suspended,under maintenance`
+* `TIMEOUT_MS`: `3000`
 
-### Option A: Cloudflare Worker (Recommended — 100% Free on Cloudflare Dashboard)
-1. Go to **Cloudflare Dashboard** $\rightarrow$ **Workers & Pages** $\rightarrow$ **Create Worker**.
-2. Click **Edit code** and paste [`src/index.js`](./src/index.js).
-3. Go to **Settings** $\rightarrow$ **Variables and Secrets** $\rightarrow$ Add `ORIGIN_URLS` with your URLs.
-4. Click **Deploy**. Your worker URL (`https://your-balancer.workers.dev`) is now your load balancer!
-
-### Option B: Standalone Node Server
-```bash
-npm install
-npm start
-```
-Runs a local/VPS redirect server on port `3000`.
+### Step 4: Add Your Custom Subdomain in Render
+1. In Render, go to your new Web Service $\rightarrow$ **Settings** $\rightarrow$ **Custom Domains**.
+2. Click **Add Custom Domain** and enter:
+   ```text
+   cse-upcat.devs.surf
+   ```
+3. In your `devs.surf` DNS dashboard, update your CNAME for `cse-upcat` to point to the new Render URL (e.g. `cse-upcat-loadbalancer.onrender.com`).

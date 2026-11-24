@@ -1,18 +1,17 @@
 {
   "name": "cse-upcat-loadbalancer",
   "version": "1.0.0",
-  "description": "Zero-bandwidth redirect load balancer and failover router for CSE UPCAT",
-  "main": "src/index.js",
+  "description": "Zero-bandwidth redirect load balancer and failover router for Render",
+  "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "build": "echo 'Build complete'"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "dependencies": {
     "dotenv": "^16.4.7"
-  },
-  "devDependencies": {
-    "wrangler": "^3.107.0"
   }
 }
