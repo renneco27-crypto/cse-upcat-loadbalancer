@@ -1,0 +1,14 @@
+name = "cse-upcat-loadbalancer"
+main = "src/index.js"
+compatibility_date = "2024-04-01"
+
+[vars]
+# Priority order of your URLs (comma-separated):
+# If URL #1 goes down or in maintenance, clients are redirected to URL #2, etc.
+ORIGIN_URLS = "https://upcat-reviewer.onrender.com, https://backup-upcat.example.com"
+
+# Timeout per health check probe in milliseconds
+TIMEOUT_MS = "2500"
+
+# Redirect response code: 302 (Found) or 307 (Temporary Redirect)
+REDIRECT_STATUS = "302"
