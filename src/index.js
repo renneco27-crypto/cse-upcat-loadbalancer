@@ -1,16 +1,18 @@
 /**
  * CSE UPCAT Redirect Load Balancer
  * Edge router that monitors target servers and redirects (HTTP 302/307)
- * traffic to the highest-priority healthy URL. Consumes zero server bandwidth!
+ * traffic to the highest-priority healthy URL.
+ * Automatically detects maintenance & suspension body keywords (e.g. "This service has been suspended").
  */
 
 // In-memory health cache per edge instance: { url: { healthy: boolean, expiresAt: number } }
 const healthCache = new Map();
 
 /**
- * Perform a quick health probe against an origin URL
+ * Perform a health check probe against an origin URL
+ * Checks HTTP status AND inspects response body for suspension/maintenance keywords
  */
-async function checkHealth(originUrl, timeoutMs) {
+async function checkHealth(originUrl, timeoutMs, maintenanceKeywords = []) {
   const cached = healthCache.get(originUrl);
   const now = Date.now();
   if (cached && cached.expiresAt > now) {
@@ -21,36 +23,45 @@ async function checkHealth(originUrl, timeoutMs) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    // Attempt lightweight HEAD request first; fallback to GET if HEAD not supported
-    let res = await fetch(originUrl, {
-      method: "HEAD",
+    const res = await fetch(originUrl, {
+      method: "GET",
       signal: controller.signal,
       redirect: "follow",
-      headers: { "User-Agent": "CSE-UPCAT-HealthChecker/1.0" }
+      headers: {
+        "User-Agent": "CSE-UPCAT-HealthChecker/1.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+      }
     });
 
-    if (res.status === 405 || res.status === 501) {
-      res = await fetch(originUrl, {
-        method: "GET",
-        signal: controller.signal,
-        redirect: "follow",
-        headers: { "User-Agent": "CSE-UPCAT-HealthChecker/1.0" }
-      });
+    clearTimeout(timer);
+
+    // 1. Check HTTP Status (5xx or 503 Maintenance)
+    if (res.status >= 500 || res.status === 503) {
+      console.warn(`[Health Check] ${originUrl} returned status ${res.status}`);
+      healthCache.set(originUrl, { healthy: false, expiresAt: now + 15_000 });
+      return false;
     }
 
-    clearTimeout(timer);
+    // 2. Read first chunk of response body to detect suspension / maintenance messages
+    // (Even if hosting providers return HTTP 200 for suspended pages)
+    const bodyText = await res.text();
+    const lowerBody = bodyText.toLowerCase();
 
-    // Consider healthy if HTTP status < 500 and not 503 (Maintenance)
-    const isHealthy = res.status < 500 && res.status !== 503;
+    for (const keyword of maintenanceKeywords) {
+      if (keyword && lowerBody.includes(keyword.toLowerCase())) {
+        console.warn(`[Health Check] ${originUrl} matched maintenance keyword: "${keyword}". Marking down.`);
+        healthCache.set(originUrl, { healthy: false, expiresAt: now + 15_000 });
+        return false;
+      }
+    }
 
-    healthCache.set(originUrl, {
-      healthy: isHealthy,
-      expiresAt: now + (isHealthy ? 30_000 : 15_000) // Recheck healthy every 30s, down every 15s
-    });
+    // Origin is healthy and serving active content
+    healthCache.set(originUrl, { healthy: true, expiresAt: now + 30_000 });
+    return true;
 
-    return isHealthy;
   } catch (error) {
     clearTimeout(timer);
+    console.warn(`[Health Check] ${originUrl} unreachable or timed out: ${error.message}`);
     healthCache.set(originUrl, { healthy: false, expiresAt: now + 15_000 });
     return false;
   }
@@ -58,7 +69,7 @@ async function checkHealth(originUrl, timeoutMs) {
 
 export default {
   async fetch(request, env, ctx) {
-    // 1. Read origin URLs from environment (comma-separated list)
+    // 1. Read origin URLs
     const rawOrigins = env.ORIGIN_URLS || "";
     const originList = rawOrigins
       .split(",")
@@ -72,17 +83,23 @@ export default {
       );
     }
 
-    const timeoutMs = parseInt(env.TIMEOUT_MS || "2500", 10);
-    const redirectStatus = parseInt(env.REDIRECT_STATUS || "302", 10); // 302 Found or 307 Temporary Redirect
+    // 2. Read keywords to flag as maintenance/suspended
+    const rawKeywords = env.MAINTENANCE_KEYWORDS || "This service has been suspended,under maintenance";
+    const maintenanceKeywords = rawKeywords
+      .split(",")
+      .map(k => k.trim())
+      .filter(Boolean);
+
+    const timeoutMs = parseInt(env.TIMEOUT_MS || "3000", 10);
+    const redirectStatus = parseInt(env.REDIRECT_STATUS || "302", 10);
     const incomingUrl = new URL(request.url);
 
-    // 2. Iterate through URLs in priority order and find the first healthy target
+    // 3. Find first healthy target
     for (let i = 0; i < originList.length; i++) {
       const targetBaseUrl = originList[i];
-      const isAlive = await checkHealth(targetBaseUrl, timeoutMs);
+      const isAlive = await checkHealth(targetBaseUrl, timeoutMs, maintenanceKeywords);
 
       if (isAlive) {
-        // Construct destination URL preserving original path and query parameters
         const destination = new URL(
           incomingUrl.pathname + incomingUrl.search + incomingUrl.hash,
           targetBaseUrl
@@ -97,11 +114,9 @@ export default {
           }
         });
       }
-
-      console.warn(`[Load Balancer] Origin down or under maintenance: ${targetBaseUrl}`);
     }
 
-    // 3. Fallback: If all destinations are down, display maintenance splash
+    // 4. Fallback if all origins are suspended or in maintenance
     return new Response(
       `<!DOCTYPE html>
 <html lang="en">
@@ -120,8 +135,8 @@ export default {
 </head>
 <body>
   <div class="card">
-    <h1>All Servers Under Maintenance</h1>
-    <p>All target mirrors are temporarily undergoing maintenance or updates. Please try again in a few moments.</p>
+    <h1>All Mirrors In Maintenance</h1>
+    <p>All CSE UPCAT application servers are currently undergoing maintenance or scheduled updates. Please refresh in a moment.</p>
     <button class="btn" onclick="location.reload()">Check Server Status</button>
   </div>
 </body>

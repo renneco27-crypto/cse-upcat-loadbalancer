@@ -10,7 +10,13 @@ const originList = rawOrigins
   .map(url => url.trim().replace(/\/$/, ""))
   .filter(Boolean);
 
-const TIMEOUT_MS = parseInt(process.env.TIMEOUT_MS || "2500", 10);
+const rawKeywords = process.env.MAINTENANCE_KEYWORDS || "This service has been suspended,under maintenance";
+const maintenanceKeywords = rawKeywords
+  .split(",")
+  .map(k => k.trim())
+  .filter(Boolean);
+
+const TIMEOUT_MS = parseInt(process.env.TIMEOUT_MS || "3000", 10);
 const REDIRECT_STATUS = parseInt(process.env.REDIRECT_STATUS || "302", 10);
 
 const healthCache = new Map();
@@ -25,18 +31,35 @@ async function checkHealth(originUrl) {
 
   try {
     const res = await fetch(originUrl, {
-      method: "HEAD",
+      method: "GET",
       signal: controller.signal,
       redirect: "follow",
-      headers: { "User-Agent": "CSE-UPCAT-Node-Balancer/1.0" }
+      headers: {
+        "User-Agent": "CSE-UPCAT-Node-Balancer/1.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+      }
     });
+
     clearTimeout(timer);
-    const isHealthy = res.status < 500 && res.status !== 503;
-    healthCache.set(originUrl, {
-      healthy: isHealthy,
-      expiresAt: now + (isHealthy ? 30_000 : 15_000)
-    });
-    return isHealthy;
+
+    if (res.status >= 500 || res.status === 503) {
+      healthCache.set(originUrl, { healthy: false, expiresAt: now + 15_000 });
+      return false;
+    }
+
+    const bodyText = await res.text();
+    const lowerBody = bodyText.toLowerCase();
+
+    for (const keyword of maintenanceKeywords) {
+      if (keyword && lowerBody.includes(keyword.toLowerCase())) {
+        console.warn(`[Node Balancer] ${originUrl} contains maintenance keyword: "${keyword}"`);
+        healthCache.set(originUrl, { healthy: false, expiresAt: now + 15_000 });
+        return false;
+      }
+    }
+
+    healthCache.set(originUrl, { healthy: true, expiresAt: now + 30_000 });
+    return true;
   } catch (err) {
     clearTimeout(timer);
     healthCache.set(originUrl, { healthy: false, expiresAt: now + 15_000 });
@@ -59,10 +82,11 @@ const server = http.createServer(async (req, res) => {
   }
 
   res.writeHead(503, { "Content-Type": "text/html; charset=utf-8" });
-  res.end(`<h1>503 - All Mirrors in Maintenance</h1><p>Please refresh in a moment.</p>`);
+  res.end(`<h1>503 - All Mirrors Suspended or in Maintenance</h1><p>Please refresh in a moment.</p>`);
 });
 
 server.listen(PORT, () => {
   console.log(`[Load Balancer] Listening on http://localhost:${PORT}`);
-  console.log(`[Load Balancer] Target URLs:`, originList);
+  console.log(`[Load Balancer] Origins:`, originList);
+  console.log(`[Load Balancer] Suspension Keywords:`, maintenanceKeywords);
 });
