@@ -108,18 +108,28 @@ const server = http.createServer(async (req, res) => {
       // Construct destination URL preserving original path and query parameters
       const destination = new URL(req.url, target).toString();
 
-      // Issue instant 302 redirect (takes 0 bandwidth from Render)
+      // Issue instant 302 redirect with security headers (takes 0 bandwidth from Render)
       res.writeHead(REDIRECT_STATUS, {
         "Location": destination,
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "X-Routed-To": target
+        "X-Routed-To": target,
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "strict-origin-when-cross-origin"
       });
       return res.end();
     }
   }
 
   // 3. Fallback if all origins are suspended or down
-  res.writeHead(503, { "Content-Type": "text/html; charset=utf-8" });
+  res.writeHead(503, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin"
+  });
   res.end(`<!DOCTYPE html>
 <html lang="en">
 <head>

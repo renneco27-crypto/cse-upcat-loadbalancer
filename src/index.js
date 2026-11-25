@@ -110,7 +110,11 @@ export default {
           headers: {
             "Location": destination.toString(),
             "Cache-Control": "no-cache, no-store, must-revalidate",
-            "X-Routed-To": targetBaseUrl
+            "X-Routed-To": targetBaseUrl,
+            "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "DENY",
+            "Referrer-Policy": "strict-origin-when-cross-origin"
           }
         });
       }
